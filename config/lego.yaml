@@ -1,0 +1,20 @@
+seed: 4
+data:
+  path: None
+  name: 'multicam'
+  white_bkgd: True
+  batch_type: 'all_images'
+train:
+  batch_size: 4096
+  num_work: 0
+mlp:
+  feature_dim: 96
+  net_depth: 8  # The depth of the first part of MLP.
+  net_width: 256  # The width of the first part of MLP.
+  net_depth_condition: 1  # The depth of the second part of MLP.
+  net_width_condition: 128  # The width of the second part of MLP.
+  net_activation: 'relu'  # The activation function.
+  skip_layer: 4  # Add a skip connection to the output of every N layers.
+  num_rgb_channels: 3  # The number of RGB channels.
+  num_density_channels: 1  # The number of density channels.
+
