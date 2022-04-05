@@ -7,6 +7,8 @@ from omegaconf import DictConfig
 from dataset.dataset import get_dataset
 from torch.utils.data import DataLoader
 from models.mip_nerf import MipNerf
+from utils.stats import Stats
+from utils.lr_schedule import MipLRDecay
 
 CONFIG_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "configs")
 
@@ -29,11 +31,11 @@ def main(cfg: DictConfig):
 
     train_dateset = get_dataset(cfg.data.path, 'train', cfg)
     test_dataset = get_dataset(cfg.data.path, 'test', cfg)
-    train_dataloder = DataLoader(train_dateset,
+    train_dataloader = DataLoader(train_dateset,
                                  batch_size=cfg.train.batch_size,
                                  shuffle=True,
                                  num_workers=cfg.train.num_work)
-    test_dataloder = DataLoader(test_dataset,
+    test_dataloader = DataLoader(test_dataset,
                                 batch_size=cfg.test.batch_size,
                                 shuffle=False,
                                 num_workers=cfg.test.num_work)
@@ -66,6 +68,64 @@ def main(cfg: DictConfig):
         mlp_num_density_channels=cfg.nerf.mlp.num_density_channels,
         mlp_net_activation=cfg.nerf.mlp.net_activation
     )
+
+    # Move the model to the relevant device.
+    model.to(device)
+
+    # Initialize the optimizer.
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.optimizer.lr_init)
+    lr_scheduler = MipLRDecay(cfg.optimizer.lr_init, cfg.optimizer.lr_final, cfg.optimizer.max_steps,
+                              cfg.optimizer.lr_delay_steps, cfg.optimizer.lr_delay_mult)
+
+    # Set the model to the training mode.
+    model.train()
+
+    # Run the main training loop.
+    total_step = 0
+    # stats = Stats(
+    #     ["loss", "mse_coarse", "mse_fine", "psnr_coarse", "psnr_fine", "sec/it"],
+    # )
+    stats = Stats(['loss'])
+    # for epoch in range(cfg.optimizer.max_epochs):
+    while True:  # keep running
+        stats.new_epoch()
+        if total_step == cfg.optimizer.max_steps:
+            break
+        for iteration, batch in enumerate(train_dataloader):
+            batch_rays, batch_pixels = batch
+            batch_rays = batch_pixels.to(device)
+            batch_pixels = batch_pixels.to(device)
+
+            optimizer.zero_grad()
+
+            ret = model(batch_rays, cfg.train.randomized, cfg.train.white_bkgd)
+
+            mask = batch['rays'].lossmult
+            if cfg.loss.disable_multiscale_loss:
+                mask = torch.ones_like(mask)
+            losses = []
+            for (rgb, _, _) in ret:
+                losses.append(
+                    (mask * (rgb - batch_pixels[..., :3]) ** 2).sum() / mask.sum())
+            # The loss is a sum of coarse and fine MSEs
+            loss = sum(losses)
+
+            # Take the training step.
+            loss.backward()
+            optimizer.step()
+
+            # Update stats with the current metrics.
+            stats.update(
+                {"loss": float(loss)},
+                stat_set="train",
+            )
+
+            if iteration % cfg.train.stats_print_interval == 0:
+                stats.print(stat_set="train")
+
+            # Adjust the learning rate.
+            lr_scheduler.step(optimizer, total_step)
+            total_step += 1
 
 
 if __name__ == '__main__':

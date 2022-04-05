@@ -7,6 +7,9 @@ data:
 train:
   batch_size: 4096
   num_work: 0
+  randomized: True
+  white_bkgd: True
+  stats_print_interval: 10
 nerf:
   num_samples: 128  # The number of samples per level.
   num_levels: 2  # The number of sampling levels.
@@ -35,4 +38,11 @@ nerf:
     skip_layer: 4  # Add a skip connection to the output of every N layers.
     num_rgb_channels: 3  # The number of RGB channels.
     num_density_channels: 1  # The number of density channels.
-
+optimizer:
+  lr_init: 5e-4  # The initial learning rate.
+  lr_final: 5e-6  # The final learning rate.
+  lr_delay_steps: 2500  # The number of "warmup" learning steps.
+  lr_delay_mult: 0.01  # How much sever the "warmup" should be.
+  max_steps: 100000
+loss:
+  disable_multiscale_loss: False
