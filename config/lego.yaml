@@ -7,14 +7,32 @@ data:
 train:
   batch_size: 4096
   num_work: 0
-mlp:
-  feature_dim: 96
-  net_depth: 8  # The depth of the first part of MLP.
-  net_width: 256  # The width of the first part of MLP.
-  net_depth_condition: 1  # The depth of the second part of MLP.
-  net_width_condition: 128  # The width of the second part of MLP.
-  net_activation: 'relu'  # The activation function.
-  skip_layer: 4  # Add a skip connection to the output of every N layers.
-  num_rgb_channels: 3  # The number of RGB channels.
-  num_density_channels: 1  # The number of density channels.
+nerf:
+  num_samples: 128  # The number of samples per level.
+  num_levels: 2  # The number of sampling levels.
+  resample_padding: 0.01  # Dirichlet/alpha "padding" on the histogram.
+  stop_level_grad: True  # If True, don't backprop across levels')
+  use_viewdirs: True  # If True, use view directions as a condition.
+  disparity: False  # If True, sample linearly in disparity, not in depth.
+  ray_shape: 'cone'  # The shape of cast rays ('cone' or 'cylinder').
+  min_deg_point: 0  # Min degree of positional encoding for 3D points.
+  max_deg_point: 16  # Max degree of positional encoding for 3D points.
+  deg_view: 4  # Degree of positional encoding for viewdirs.
+  density_activation: 'softplus'  # Density activation.
+  density_noise: 0.  # Standard deviation of noise added to raw density.
+  density_bias: -1.  # The shift added to raw densities pre-activation.
+  rgb_activation: 'sigmoid'  # The RGB activation.
+  rgb_padding: 0.001  # Padding added to the RGB outputs.
+  disable_integration: False  # If True, use PE instead of IPE.
+  append_identity: Ture  # If True, append original view direction features
+  mlp:
+    feature_dim: 96
+    net_depth: 8  # The depth of the first part of MLP.
+    net_width: 256  # The width of the first part of MLP.
+    net_depth_condition: 1  # The depth of the second part of MLP.
+    net_width_condition: 128  # The width of the second part of MLP.
+    net_activation: 'relu'  # The activation function.
+    skip_layer: 4  # Add a skip connection to the output of every N layers.
+    num_rgb_channels: 3  # The number of RGB channels.
+    num_density_channels: 1  # The number of density channels.
 
