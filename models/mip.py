@@ -129,6 +129,120 @@ def sample_along_rays(origins, directions, radii, num_samples, near, far, random
     return t_samples, (means, covs)
 
 
+def sorted_piecewise_constant_pdf(bins, weights, num_samples, randomized):
+    """
+    Piecewise-Constant PDF sampling from sorted bins.
+    Args:
+        bins: jnp.ndarray(float32), [batch_size, num_bins + 1].
+        weights: jnp.ndarray(float32), [batch_size, num_bins].
+        num_samples: int, the number of samples.
+        randomized: bool, use randomized samples.
+    Returns:
+        t_samples: jnp.ndarray(float32), [batch_size, num_samples].
+    """
+    # Pad each weight vector (only if necessary) to bring its sum to `eps`. This
+    # avoids NaNs when the input is zeros or small, but has no effect otherwise.
+    eps = 1e-5
+    weight_sum = torch.sum(weights, dim=-1, keepdim=True)
+    padding = torch.maximum(torch.zeros_like(weight_sum), eps - weight_sum)
+    weights += padding / weights.shape[-1]
+    weight_sum += padding
+
+    # Compute the PDF and CDF for each weight vector, while ensuring that the CDF
+    # starts with exactly 0 and ends with exactly 1.
+    pdf = weights / weight_sum
+    cdf = torch.cumsum(pdf[..., :-1], dim=-1)
+    cdf = torch.minimum(torch.ones_like(cdf), cdf)
+    cdf = torch.cat([torch.zeros(list(cdf.shape[:-1]) + [1]), cdf, torch.ones(list(cdf.shape[:-1]) + [1])], dim=-1)
+
+    # Draw uniform samples.
+    if randomized:
+        s = 1 / num_samples
+        u = (torch.arange(num_samples) * s)[None, ...]
+        # u += jax.random.uniform(
+        #     key,
+        #     list(cdf.shape[:-1]) + [num_samples],
+        #     maxval=s - jnp.finfo('float32').eps)
+        u = u + torch.empty(list(cdf.shape[:-1]) + [num_samples]).uniform_(to=(s-torch.finfo(torch.float32).eps))
+        # `u` is in [0, 1) --- it can be zero, but it can never be 1.
+        u = torch.minimum(u, torch.full_like(u, 1. - torch.finfo(torch.float32).eps))
+    else:
+        # Match the behavior of jax.random.uniform() by spanning [0, 1-eps].
+        u = torch.linspace(0., 1. - torch.finfo(torch.float32).eps, num_samples)
+        u = torch.broadcast_to(u, list(cdf.shape[:-1]) + [num_samples])
+
+    # Identify the location in `cdf` that corresponds to a random sample.
+    # The final `True` index in `mask` will be the start of the sampled interval.
+    mask = u[..., None, :] >= cdf[..., :, None]
+
+    def find_interval(x):
+        # Grab the value where `mask` switches from True to False, and vice versa.
+        # This approach takes advantage of the fact that `x` is sorted.
+        x0, _ = torch.max(torch.where(mask, x[..., None], x[..., :1, None]), -2)
+        x1, _ = torch.min(torch.where(~mask, x[..., None], x[..., -1:, None]), -2)
+        return x0, x1
+
+    bins_g0, bins_g1 = find_interval(bins)
+    cdf_g0, cdf_g1 = find_interval(cdf)
+
+    t = torch.clamp(torch.nan_to_num((u - cdf_g0) / (cdf_g1 - cdf_g0), 0), 0, 1)
+    samples = bins_g0 + t * (bins_g1 - bins_g0)
+    return samples
+
+
+def resample_along_rays(origins, directions, radii, t_samples, weights, randomized, ray_shape, stop_grad,
+                        resample_padding):
+    """Resampling.
+    Args:
+        origins: jnp.ndarray(float32), [batch_size, 3], ray origins.
+        directions: jnp.ndarray(float32), [batch_size, 3], ray directions.
+        radii: jnp.ndarray(float32), [batch_size, 3], ray radii.
+        t_samples: jnp.ndarray(float32), [batch_size, num_samples+1].
+        weights: jnp.array(float32), weights for t_samples
+        randomized: bool, use randomized samples.
+        ray_shape: string, which kind of shape to assume for the ray.
+        stop_grad: bool, whether or not to backprop through sampling.
+        resample_padding: float, added to the weights before normalizing.
+    Returns:
+        t_samples: jnp.ndarray(float32), [batch_size, num_samples+1].
+        points: jnp.ndarray(float32), [batch_size, num_samples, 3].
+    """
+    # Do a blurpool.
+    if stop_grad:
+        with torch.no_grad():
+            weights_pad = torch.cat([weights[..., :1], weights, weights[..., -1:]], dim=-1)
+            weights_max = torch.maximum(weights_pad[..., :-1], weights_pad[..., 1:])
+            weights_blur = 0.5 * (weights_max[..., :-1] + weights_max[..., 1:])
+
+            # Add in a constant (the sampling function will renormalize the PDF).
+            weights = weights_blur + resample_padding
+
+            new_t_vals = sorted_piecewise_constant_pdf(
+                t_samples,
+                weights,
+                t_samples.shape[-1],
+                randomized,
+            )
+    else:
+        weights_pad = torch.cat([weights[..., :1], weights, weights[..., -1:]], dim=-1)
+        weights_max = torch.maximum(weights_pad[..., :-1], weights_pad[..., 1:])
+        weights_blur = 0.5 * (weights_max[..., :-1] + weights_max[..., 1:])
+
+        # Add in a constant (the sampling function will renormalize the PDF).
+        weights = weights_blur + resample_padding
+
+        new_t_vals = sorted_piecewise_constant_pdf(
+            t_samples,
+            weights,
+            t_samples.shape[-1],
+            randomized,
+        )
+    # if stop_grad:
+    #     new_t_vals = lax.stop_gradient(new_t_vals)
+    means, covs = cast_rays(new_t_vals, origins, directions, radii, ray_shape)
+    return new_t_vals, (means, covs)
+
+
 def expected_sin(x, x_var):
     """Estimates mean and variance of sin(z), z ~ N(x, var)."""
     # When the variance is wide, shrink sin towards zero.
@@ -198,8 +312,10 @@ def volumetric_rendering(rgb, density, t_samples, dirs, white_bkgd):
         acc: jnp.ndarray(float32), [batch_size].
         weights: jnp.ndarray(float32), [batch_size, num_samples]
     """
+    # TODO: different from nerf ? nerf use cumprod to get weights.
     t_mids = 0.5 * (t_samples[..., :-1] + t_samples[..., 1:])
     t_interval = t_samples[..., 1:] - t_samples[..., :-1]
+    # TODO: delta = t_interval?
     delta = t_interval * torch.linalg.norm(dirs[..., None, :], dim=-1)
     # Note that we're quietly turning density from [..., 0] to [...].
     density_delta = density[..., 0] * delta

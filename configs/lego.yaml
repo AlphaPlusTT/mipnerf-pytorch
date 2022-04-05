@@ -11,7 +11,7 @@ nerf:
   num_samples: 128  # The number of samples per level.
   num_levels: 2  # The number of sampling levels.
   resample_padding: 0.01  # Dirichlet/alpha "padding" on the histogram.
-  stop_level_grad: True  # If True, don't backprop across levels')
+  stop_resample_grad: True  # If True, don't backprop across levels')
   use_viewdirs: True  # If True, use view directions as a condition.
   disparity: False  # If True, sample linearly in disparity, not in depth.
   ray_shape: 'cone'  # The shape of cast rays ('cone' or 'cylinder').

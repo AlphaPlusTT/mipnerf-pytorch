@@ -1,6 +1,6 @@
 import torch
 from einops import repeat
-from mip import sample_along_rays, integrated_pos_enc, pos_enc, volumetric_rendering
+from .mip import sample_along_rays, integrated_pos_enc, pos_enc, volumetric_rendering, resample_along_rays
 from collections import namedtuple
 
 
@@ -102,7 +102,7 @@ class MLP(torch.nn.Module):
 
 class MipNerf(torch.nn.Module):
     """Nerf NN Model with both coarse and fine MLPs."""
-    def __init__(self, num_samples: int, num_levels: int, resample_padding: float, stop_level_grad: bool,
+    def __init__(self, num_samples: int, num_levels: int, resample_padding: float, stop_resample_grad: bool,
                  use_viewdirs: bool, disparity: bool, ray_shape: str, min_deg_point: int, max_deg_point: int,
                  deg_view: int, density_activation: str, density_noise: float, density_bias: float,
                  rgb_activation: str, rgb_padding: float, disable_integration: bool, append_identity: bool,
@@ -137,6 +137,8 @@ class MipNerf(torch.nn.Module):
         else:
             raise NotImplementedError
         self.density_bias = density_bias
+        self.resample_padding = resample_padding
+        self.stop_resample_grad = stop_resample_grad
 
     def forward(self, rays: namedtuple, randomized: bool, white_bkgd: bool):
         """The mip-NeRF Model.
@@ -151,6 +153,7 @@ class MipNerf(torch.nn.Module):
         # mlp = MLP()
 
         ret = []
+        t_samples, weights = None, None
         for i_level in range(self.num_levels):
             # key, rng = random.split(rng)
             if i_level == 0:
@@ -167,19 +170,17 @@ class MipNerf(torch.nn.Module):
                     self.ray_shape,
                 )
             else:
-                # t_samples, means_covs = mip.resample_along_rays(
-                #     key,
-                #     rays.origins,
-                #     rays.directions,
-                #     rays.radii,
-                #     t_samples,
-                #     weights,
-                #     randomized,
-                #     self.ray_shape,
-                #     self.stop_level_grad,
-                #     resample_padding=self.resample_padding,
-                # )
-                raise NotImplementedError
+                t_samples, means_covs = resample_along_rays(
+                    rays.origins,
+                    rays.directions,
+                    rays.radii,
+                    t_samples,
+                    weights,
+                    randomized,
+                    self.ray_shape,
+                    self.stop_resample_grad,
+                    resample_padding=self.resample_padding,
+                )
             if self.disable_integration:
                 means_covs = (means_covs[0], torch.zeros_like(means_covs[1]))
             samples_enc = integrated_pos_enc(
@@ -196,9 +197,9 @@ class MipNerf(torch.nn.Module):
                     max_deg=self.deg_view,
                     append_identity=True,
                 )
-                raw_rgb, raw_density = mlp(samples_enc, viewdirs_enc)
+                raw_rgb, raw_density = self.mlp(samples_enc, viewdirs_enc)
             else:
-                raw_rgb, raw_density = mlp(samples_enc)
+                raw_rgb, raw_density = self.mlp(samples_enc)
 
             # Add noise to regularize the density predictions if needed.
             if randomized and (self.density_noise > 0):
@@ -221,11 +222,11 @@ class MipNerf(torch.nn.Module):
 
 
 if __name__ == '__main__':
-    mlp = MLP(8, 256, 2, 128, 4, 3, 1, 'relu', 96, 27)
-    xyz_feature = torch.randn((2, 128, 96))
-    view_feature = torch.randn((2, 27))
-    out = mlp(xyz_feature, view_feature)
-    print(out[0].shape, out[1].shape)
+    # mlp = MLP(8, 256, 2, 128, 4, 3, 1, 'relu', 96, 27)
+    # xyz_feature = torch.randn((2, 128, 96))
+    # view_feature = torch.randn((2, 27))
+    # out = mlp(xyz_feature, view_feature)
+    # print(out[0].shape, out[1].shape)
 
     import collections
     Rays = collections.namedtuple(
@@ -234,7 +235,7 @@ if __name__ == '__main__':
     randn3 = torch.randn(64, 3)
     randn1 = torch.randn(64, 1)
     rayss = Rays(*([randn3] * 3), *([randn1] * 4))
-    model = MipNerf(128, 1, 0., True, True, False, 'cone', 0, 16, 4, 'softplus', 0., -1., 'sigmoid', 0.001, False, True,
+    model = MipNerf(128, 2, 0., True, True, False, 'cone', 0, 16, 4, 'softplus', 0., -1., 'sigmoid', 0.001, False, True,
                     8, 256, 2, 128, 4, 3, 1, 'relu')
     out = model(rayss, True, True)
     print(out[0][0].shape)
