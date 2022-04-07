@@ -46,10 +46,38 @@ class MultiCamera(Dataset):
         self.split = split
         self.white_bkgd = white_bkgd
         self.batch_type = batch_type
-        self._load_renderings()
-        self._generate_rays()
-        self.images = self._flatten(self.images)
-        self.rays = namedtuple_map(self._flatten, self.rays)
+        if not self.check_cache():
+            self._load_renderings()
+            self._generate_rays()
+            self.images = self._flatten(self.images)
+            self.rays = namedtuple_map(self._flatten, self.rays)
+            self.cache_data()
+
+    def check_cache(self):
+        if self.white_bkgd:
+            bkgd = 'white'
+        else:
+            bkgd = 'black'
+        image_cache_name = '_'.join(['images', self.split, bkgd, self.batch_type]) + '.npy'
+        rays_cache_name = '_'.join(['rays', self.split, bkgd, self.batch_type]) + '.npy'
+        image_cache_path = os.path.join(self.data_dir, image_cache_name)
+        rays_cache_path = os.path.join(self.data_dir, rays_cache_name)
+        if os.path.exists(image_cache_path) and os.path.exists(rays_cache_path):
+            self.images = np.load(image_cache_path)
+            self.rays = np.load(rays_cache_path)
+            return True
+        else:
+            return False
+
+    def cache_data(self):
+        if self.white_bkgd:
+            bkgd = 'white'
+        else:
+            bkgd = 'black'
+        image_cache_name = '_'.join(['images', self.split, bkgd, self.batch_type])
+        rays_cache_name = '_'.join(['rays', self.split, bkgd, self.batch_type])
+        np.save(os.path.join(self.data_dir, image_cache_name), self.images)
+        np.save(os.path.join(self.data_dir, rays_cache_name), self.rays)
 
     def _load_renderings(self):
         """Load images from disk."""
@@ -69,7 +97,7 @@ class MultiCamera(Dataset):
                 image = image[..., :3] * mask + (1. - mask)
             images.append(image[..., :3])
         self.images = images
-        self.n_examples = len(self.images)
+        # self.n_examples = len(self.images)
 
     def _generate_rays(self):
         """Generating rays for all images."""
@@ -99,7 +127,7 @@ class MultiCamera(Dataset):
         def broadcast_scalar_attribute(x):
             return [
                 np.broadcast_to(x[i], origins[i][..., :1].shape)
-                for i in range(self.n_examples)
+                for i in range(len(self.images))
             ]
 
         lossmult = broadcast_scalar_attribute(self.meta['lossmult'])
@@ -136,7 +164,7 @@ class MultiCamera(Dataset):
         if self.batch_type == 'all_images':
             return self.images.shape[0]
         elif self.batch_type == 'single_image':
-            return self.n_examples
+            return len(self.images)
         else:
             raise NotImplementedError(f'{self.batch_type} batching strategy is not implemented.')
 
