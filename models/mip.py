@@ -8,7 +8,7 @@ def lift_gaussian(directions, t_mean, t_var, r_var, diagonal):
     mean = directions[..., None, :] * t_mean[..., None]
     # d_mag_sq = jnp.maximum(1e-10, torch.sum(directions ** 2, dim=-1, keepdim=True))
     d_norm_denominator = torch.sum(directions ** 2, dim=-1, keepdim=True)
-    # TODO: is dtype and device necessary
+    # TODO: is *_like able to copy the device?
     # min_denominator = torch.full_like(d_norm_denominator, 1e-10, dtype=d_norm_denominator.dtype,
     #                                   device=d_norm_denominator.device)
     min_denominator = torch.full_like(d_norm_denominator, 1e-10)
@@ -23,7 +23,7 @@ def lift_gaussian(directions, t_mean, t_var, r_var, diagonal):
     else:
         d_outer = directions[..., :, None] * directions[..., None, :]
         # eye = torch.eye(directions.shape[-1], dtype=directions.dtype, device=directions.device)
-        eye = torch.eye(directions.shape[-1])
+        eye = torch.eye(directions.shape[-1], device=directions.device)
         # TODO: directions / torch.sqrt(d_norm_denominator) ?
         null_outer = eye - directions[..., :, None] * (directions / d_norm_denominator)[..., None, :]
         t_cov = t_var[..., None, None] * d_outer[..., None, :, :]
@@ -123,8 +123,7 @@ def sample_along_rays(origins, directions, radii, num_samples, near, far, random
         t_samples = lower + (upper - lower) * t_rand
     else:
         # Broadcast t_samples to make the returned shape consistent.
-        # t_samples = jnp.broadcast_to(t_samples, [batch_size, num_samples + 1])
-        raise NotImplementedError
+        t_samples = torch.broadcast_to(t_samples, [batch_size, num_samples + 1])
     means, covs = cast_rays(t_samples, origins, directions, radii, ray_shape)
     return t_samples, (means, covs)
 
@@ -153,22 +152,25 @@ def sorted_piecewise_constant_pdf(bins, weights, num_samples, randomized):
     pdf = weights / weight_sum
     cdf = torch.cumsum(pdf[..., :-1], dim=-1)
     cdf = torch.minimum(torch.ones_like(cdf), cdf)
-    cdf = torch.cat([torch.zeros(list(cdf.shape[:-1]) + [1]), cdf, torch.ones(list(cdf.shape[:-1]) + [1])], dim=-1)
+    cdf = torch.cat([torch.zeros(list(cdf.shape[:-1]) + [1], device=cdf.device),
+                     cdf,
+                     torch.ones(list(cdf.shape[:-1]) + [1], device=cdf.device)],
+                    dim=-1)
 
     # Draw uniform samples.
     if randomized:
         s = 1 / num_samples
-        u = (torch.arange(num_samples) * s)[None, ...]
+        u = (torch.arange(num_samples, device=cdf.device) * s)[None, ...]
         # u += jax.random.uniform(
         #     key,
         #     list(cdf.shape[:-1]) + [num_samples],
         #     maxval=s - jnp.finfo('float32').eps)
-        u = u + torch.empty(list(cdf.shape[:-1]) + [num_samples]).uniform_(to=(s-torch.finfo(torch.float32).eps))
+        u = u + torch.empty(list(cdf.shape[:-1]) + [num_samples], device=cdf.device).uniform_(to=(s-torch.finfo(torch.float32).eps))
         # `u` is in [0, 1) --- it can be zero, but it can never be 1.
-        u = torch.minimum(u, torch.full_like(u, 1. - torch.finfo(torch.float32).eps))
+        u = torch.minimum(u, torch.full_like(u, 1. - torch.finfo(torch.float32).eps, device=u.device))
     else:
         # Match the behavior of jax.random.uniform() by spanning [0, 1-eps].
-        u = torch.linspace(0., 1. - torch.finfo(torch.float32).eps, num_samples)
+        u = torch.linspace(0., 1. - torch.finfo(torch.float32).eps, num_samples, device=cdf.device)
         u = torch.broadcast_to(u, list(cdf.shape[:-1]) + [num_samples])
 
     # Identify the location in `cdf` that corresponds to a random sample.
@@ -276,7 +278,7 @@ def integrated_pos_enc(means_covs, min_deg, max_deg, diagonal=True):
     else:
         means, x_cov = means_covs
         num_dims = means.shape[-1]
-        basis = torch.cat([2 ** i * torch.eye(num_dims) for i in range(min_deg, max_deg)], 1)
+        basis = torch.cat([2 ** i * torch.eye(num_dims, device=means.device) for i in range(min_deg, max_deg)], 1)
         y = torch.matmul(means, basis)
         # Get the diagonal of a covariance matrix (ie, variance). This is equivalent
         # to jax.vmap(jnp.diagonal)((basis.T @ covs) @ basis).
