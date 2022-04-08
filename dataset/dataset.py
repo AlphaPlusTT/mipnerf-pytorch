@@ -8,6 +8,7 @@ import collections
 Rays = collections.namedtuple(
     'Rays',
     ('origins', 'directions', 'viewdirs', 'radii', 'lossmult', 'near', 'far'))
+Rays_keys = Rays._fields
 
 
 def namedtuple_map(fn, tup):
@@ -58,13 +59,10 @@ class MultiCamera(Dataset):
             bkgd = 'white'
         else:
             bkgd = 'black'
-        image_cache_name = '_'.join(['images', self.split, bkgd, self.batch_type]) + '.npy'
-        rays_cache_name = '_'.join(['rays', self.split, bkgd, self.batch_type]) + '.npy'
-        image_cache_path = os.path.join(self.data_dir, image_cache_name)
-        rays_cache_path = os.path.join(self.data_dir, rays_cache_name)
-        if os.path.exists(image_cache_path) and os.path.exists(rays_cache_path):
-            self.images = np.load(image_cache_path)
-            self.rays = np.load(rays_cache_path)
+        cache_path = os.path.join(self.data_dir, '_'.join(['cache', self.split, bkgd, self.batch_type]))
+        if os.path.exists(cache_path):
+            self.images = np.load(os.path.join(cache_path, 'images.npy'))
+            self.rays = Rays(*[np.load(os.path.join(cache_path, name+'.npy')) for name in Rays_keys])
             return True
         else:
             return False
@@ -74,10 +72,11 @@ class MultiCamera(Dataset):
             bkgd = 'white'
         else:
             bkgd = 'black'
-        image_cache_name = '_'.join(['images', self.split, bkgd, self.batch_type])
-        rays_cache_name = '_'.join(['rays', self.split, bkgd, self.batch_type])
-        np.save(os.path.join(self.data_dir, image_cache_name), self.images)
-        np.save(os.path.join(self.data_dir, rays_cache_name), self.rays)
+        cache_path = os.path.join(self.data_dir, '_'.join(['cache', self.split, bkgd, self.batch_type]))
+        assert not os.path.exists(cache_path)
+        os.mkdir(cache_path)
+        np.save(os.path.join(cache_path, 'images'), self.images)
+        [np.save(os.path.join(cache_path, name), getattr(self.rays, name)) for name in Rays_keys]
 
     def _load_renderings(self):
         """Load images from disk."""

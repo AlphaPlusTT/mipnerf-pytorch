@@ -9,6 +9,8 @@ from torch.utils.data import DataLoader
 from models.mip_nerf import MipNerf
 from utils.stats import Stats
 from utils.lr_schedule import MipLRDecay
+from dataset.dataset import Rays_keys
+import pdb
 
 CONFIG_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "configs")
 
@@ -30,15 +32,15 @@ def main(cfg: DictConfig):
         device = "cpu"
 
     train_dateset = get_dataset(cfg.data.path, 'train', cfg)
-    test_dataset = get_dataset(cfg.data.path, 'test', cfg)
+    # test_dataset = get_dataset(cfg.data.path, 'test', cfg)
     train_dataloader = DataLoader(train_dateset,
                                  batch_size=cfg.train.batch_size,
                                  shuffle=True,
                                  num_workers=cfg.train.num_work)
-    test_dataloader = DataLoader(test_dataset,
-                                batch_size=cfg.test.batch_size,
-                                shuffle=False,
-                                num_workers=cfg.test.num_work)
+    # test_dataloader = DataLoader(test_dataset,
+    #                             batch_size=cfg.test.batch_size,
+    #                             shuffle=False,
+    #                             num_workers=cfg.test.num_work)
 
     # Initialize the Radiance Field model.
     model = MipNerf(
@@ -57,7 +59,7 @@ def main(cfg: DictConfig):
         density_bias=cfg.nerf.density_bias,
         rgb_activation=cfg.nerf.rgb_activation,
         rgb_padding=cfg.nerf.rgb_padding,
-        disable_integration=cfg.disable_integration,
+        disable_integration=cfg.nerf.disable_integration,
         append_identity=cfg.nerf.append_identity,
         mlp_net_depth=cfg.nerf.mlp.net_depth,
         mlp_net_width=cfg.nerf.mlp.net_width,
@@ -87,13 +89,18 @@ def main(cfg: DictConfig):
     # )
     stats = Stats(['loss'])
     # for epoch in range(cfg.optimizer.max_epochs):
+    print('*'*10)
+    print('enter training')
+    print('*' * 10)
     while True:  # keep running
         stats.new_epoch()
         if total_step == cfg.optimizer.max_steps:
             break
         for iteration, batch in enumerate(train_dataloader):
             batch_rays, batch_pixels = batch
-            batch_rays = batch_pixels.to(device)
+            # pdb.set_trace()
+            # batch_rays = batch_rays.to(device)
+            [getattr(batch_rays, name).to(device) for name in Rays_keys]
             batch_pixels = batch_pixels.to(device)
 
             optimizer.zero_grad()

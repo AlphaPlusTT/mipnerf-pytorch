@@ -35,7 +35,7 @@ nerf:
     net_depth_condition: 1  # The depth of the second part of MLP.
     net_width_condition: 128  # The width of the second part of MLP.
     net_activation: 'relu'  # The activation function.
-    skip_layer: 4  # Add a skip connection to the output of every N layers.
+    skip_index: 4  # Add a skip connection to the output of every N layers.
     num_rgb_channels: 3  # The number of RGB channels.
     num_density_channels: 1  # The number of density channels.
 optimizer:

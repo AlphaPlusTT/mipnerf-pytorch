@@ -1,4 +1,5 @@
 .idea/
+outputs/
 temp/
 __pycache__/
 lego/
