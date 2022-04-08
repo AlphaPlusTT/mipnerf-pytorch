@@ -108,7 +108,7 @@ def sample_along_rays(origins, directions, radii, num_samples, near, far, random
     """
     batch_size = origins.shape[0]
 
-    t_samples = torch.linspace(0., 1., num_samples + 1)
+    t_samples = torch.linspace(0., 1., num_samples + 1, device=origins.device)
     if disparity:
         t_samples = 1. / (1. / near * (1. - t_samples) + 1. / far * t_samples)
     else:
@@ -119,7 +119,7 @@ def sample_along_rays(origins, directions, radii, num_samples, near, far, random
         mids = 0.5 * (t_samples[..., 1:] + t_samples[..., :-1])
         upper = torch.cat([mids, t_samples[..., -1:]], -1)
         lower = torch.cat([t_samples[..., :1], mids], -1)
-        t_rand = torch.rand(batch_size, num_samples + 1)
+        t_rand = torch.rand(batch_size, num_samples + 1, device=origins.device)
         t_samples = lower + (upper - lower) * t_rand
     else:
         # Broadcast t_samples to make the returned shape consistent.
@@ -265,7 +265,7 @@ def integrated_pos_enc(means_covs, min_deg, max_deg, diagonal=True):
     """
     if diagonal:
         means, covs_diag = means_covs
-        scales = torch.tensor([2 ** i for i in range(min_deg, max_deg)])
+        scales = torch.tensor([2 ** i for i in range(min_deg, max_deg)], device=means.device)
         # shape = list(means.shape[:-1]) + [-1]
         # y = torch.reshape(means[..., None, :] * scales[:, None], shape)
         y = rearrange(means[..., None, :] * scales[:, None],
@@ -287,7 +287,7 @@ def integrated_pos_enc(means_covs, min_deg, max_deg, diagonal=True):
 
 def pos_enc(x, min_deg, max_deg, append_identity=True):
     """The positional encoding used by the original NeRF paper."""
-    scales = torch.tensor([2 ** i for i in range(min_deg, max_deg)])
+    scales = torch.tensor([2 ** i for i in range(min_deg, max_deg)], device=x.device)
     # xb = jnp.reshape((x[..., None, :] * scales[:, None]), list(x.shape[:-1]) + [-1])
     xb = rearrange(x[..., None, :] * scales[:, None],
                    'batch scale_dim x_dim -> batch (scale_dim x_dim)')

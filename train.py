@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from models.mip_nerf import MipNerf
 from utils.stats import Stats
 from utils.lr_schedule import MipLRDecay
-from dataset.dataset import Rays_keys
+from dataset.dataset import Rays_keys, Rays
 import pdb
 
 CONFIG_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "configs")
@@ -100,14 +100,15 @@ def main(cfg: DictConfig):
             batch_rays, batch_pixels = batch
             # pdb.set_trace()
             # batch_rays = batch_rays.to(device)
-            [getattr(batch_rays, name).to(device) for name in Rays_keys]
-            batch_pixels = batch_pixels.to(device)
+            # [getattr(batch_rays, name).to(device) for name in Rays_keys]
+            batch_rays = Rays(*[getattr(batch_rays, name).float().to(device) for name in Rays_keys])
+            batch_pixels = batch_pixels.float().to(device)
 
             optimizer.zero_grad()
 
             ret = model(batch_rays, cfg.train.randomized, cfg.train.white_bkgd)
 
-            mask = batch['rays'].lossmult
+            mask = batch_rays.lossmult
             if cfg.loss.disable_multiscale_loss:
                 mask = torch.ones_like(mask)
             losses = []

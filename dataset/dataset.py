@@ -185,3 +185,24 @@ dataset_dict = {
     'llff': LLFF,
     'multicam': MultiCamera,
 }
+
+
+if __name__ == '__main__':
+    with open(os.path.join('../lego', 'metadata.json'), 'r') as fp:
+        meta = json.load(fp)['train']
+    meta = {k: np.array(meta[k]) for k in meta}
+    # should now have ['pix2cam', 'cam2world', 'width', 'height'] in self.meta
+    images = []
+    for relative_path in meta['file_path'][:10]:
+        image_path = os.path.join('../lego', relative_path)
+        with open(image_path, 'rb') as image_file:
+            image = np.array(Image.open(image_file), dtype=np.float32) / 255.
+        if True:
+            # image = image[..., :3] * image[..., -1:] + (1. - image[..., -1:])
+            # pixels with alpha between 0 and 1 has a weird color!
+            mask = np.where(image[..., -1] > 1e-6, 1., 0.)[..., None]
+            image = image[..., :3] * mask + (1. - mask)
+        images.append(image[..., :3])
+    images = images
+    print(meta['pix2cam'].dtype)  # float64
+    print(images[0].dtype)  # float64
