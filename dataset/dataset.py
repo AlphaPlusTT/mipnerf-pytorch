@@ -50,8 +50,13 @@ class MultiCamera(Dataset):
         if not self.check_cache():
             self._load_renderings()
             self._generate_rays()
-            self.images = self._flatten(self.images)
-            self.rays = namedtuple_map(self._flatten, self.rays)
+            if split == 'train':
+                # all_images: [all_rays, dim]; single_image: [[image1_rays, dim], [image2_rays, dim], ...]
+                self.images = self._flatten(self.images)
+                self.rays = namedtuple_map(self._flatten, self.rays)
+            else:
+                # for val and test phase, keep the image shape
+                assert batch_type == 'single_image', 'The batch_type can only be single_image without flatten'
             self.cache_data()
 
     def check_cache(self):
@@ -168,16 +173,19 @@ class MultiCamera(Dataset):
             raise NotImplementedError(f'{self.batch_type} batching strategy is not implemented.')
 
     def __getitem__(self, index):
-        if self.batch_type == 'all_images':
-            return Rays(*[self.rays[i][index] for i in range(len(self.rays))]), self.images[index]
-        elif self.batch_type == 'single_image':
-            raise NotImplementedError
-        else:
-            raise NotImplementedError(f'{self.batch_type} batching strategy is not implemented.')
+        # if self.batch_type == 'all_images':
+        #     # return Rays(*[self.rays[i][index] for i in range(len(self.rays))]), self.images[index]
+        #     return Rays(*[getattr(self.rays, key)[index] for key in Rays_keys]), self.images[index]
+        # elif self.batch_type == 'single_image':
+        #     raise NotImplementedError
+        #     # return Rays(*[getattr(self.rays, key)[index] for key in Rays_keys]), self.images[index]
+        # else:
+        #     raise NotImplementedError(f'{self.batch_type} batching strategy is not implemented.')
+        return Rays(*[getattr(self.rays, key)[index] for key in Rays_keys]), self.images[index]
 
 
-def get_dataset(data_dir, split, cfg):
-    return dataset_dict[cfg.data.name](data_dir, split, cfg.data.white_bkgd, cfg.data.batch_type)
+def get_dataset(data_name, data_dir, split, white_bkgd, batch_type):
+    return dataset_dict[data_name](data_dir, split, white_bkgd, batch_type)
 
 
 dataset_dict = {

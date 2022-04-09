@@ -10,7 +10,12 @@ from models.mip_nerf import MipNerf
 from utils.stats import Stats
 from utils.lr_schedule import MipLRDecay
 from dataset.dataset import Rays_keys, Rays
+from utils.loss import mse2psnr
+from visdom import Visdom
+from utils.vis import visualize_nerf_outputs
 import pdb
+import warnings
+warnings.simplefilter('error')
 
 CONFIG_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "configs")
 
@@ -25,22 +30,23 @@ def main(cfg: DictConfig):
     if torch.cuda.is_available():
         device = "cuda"
     else:
-        warnings.warn(
-            "Please note that although executing on CPU is supported,"
-            + "the training is unlikely to finish in reasonable time."
-        )
+        # warnings.warn(
+        #     "Please note that although executing on CPU is supported,"
+        #     + "the training is unlikely to finish in reasonable time."
+        # )
         device = "cpu"
 
-    train_dateset = get_dataset(cfg.data.path, 'train', cfg)
-    # test_dataset = get_dataset(cfg.data.path, 'test', cfg)
+    # if 'batch_type' is 'single_image', make sure the 'batch_size' is 1
+    train_dateset = get_dataset(cfg.data.name, cfg.data.path, 'train', cfg.train.white_bkgd, cfg.train.batch_type)
+    val_dataset = get_dataset(cfg.data.name, cfg.data.path, 'val', cfg.val.white_bkgd, cfg.val.batch_type)
     train_dataloader = DataLoader(train_dateset,
-                                 batch_size=cfg.train.batch_size,
-                                 shuffle=True,
-                                 num_workers=cfg.train.num_work)
-    # test_dataloader = DataLoader(test_dataset,
-    #                             batch_size=cfg.test.batch_size,
-    #                             shuffle=False,
-    #                             num_workers=cfg.test.num_work)
+                                  batch_size=cfg.train.batch_size,
+                                  shuffle=True,
+                                  num_workers=cfg.train.num_work)
+    val_dataloader = DataLoader(val_dataset,
+                                batch_size=cfg.val.batch_size,
+                                shuffle=True,
+                                num_workers=cfg.val.num_work)
 
     # Initialize the Radiance Field model.
     model = MipNerf(
@@ -75,25 +81,34 @@ def main(cfg: DictConfig):
     model.to(device)
 
     # Initialize the optimizer.
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.optimizer.lr_init)
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.optimizer.lr_init)  # TODO: With out weight decay?
     lr_scheduler = MipLRDecay(cfg.optimizer.lr_init, cfg.optimizer.lr_final, cfg.optimizer.max_steps,
                               cfg.optimizer.lr_delay_steps, cfg.optimizer.lr_delay_mult)
 
     # Set the model to the training mode.
     model.train()
 
+    # Init the visualization visdom env.
+    if cfg.visualization.visdom:
+        viz = Visdom(
+            server=cfg.visualization.visdom_server,
+            port=cfg.visualization.visdom_port,
+            use_incoming_socket=False,
+        )
+    else:
+        viz = None
+
     # Run the main training loop.
     total_step = 0
+    epoch = -1
     # stats = Stats(
     #     ["loss", "mse_coarse", "mse_fine", "psnr_coarse", "psnr_fine", "sec/it"],
     # )
-    stats = Stats(['loss'])
+    stats = Stats(['loss', 'mse_coarse', 'mse_fine', 'psnr_coarse', 'psnr_fine'])
     # for epoch in range(cfg.optimizer.max_epochs):
-    print('*'*10)
-    print('enter training')
-    print('*' * 10)
     while True:  # keep running
         stats.new_epoch()
+        epoch += 1
         if total_step == cfg.optimizer.max_steps:
             break
         for iteration, batch in enumerate(train_dataloader):
@@ -116,7 +131,8 @@ def main(cfg: DictConfig):
                 losses.append(
                     (mask * (rgb - batch_pixels[..., :3]) ** 2).sum() / mask.sum())
             # The loss is a sum of coarse and fine MSEs
-            loss = sum(losses)
+            mse_corse, mse_fine = losses
+            loss = cfg.loss.coarse_loss_mult * mse_corse + mse_fine
 
             # Take the training step.
             loss.backward()
@@ -124,7 +140,8 @@ def main(cfg: DictConfig):
 
             # Update stats with the current metrics.
             stats.update(
-                {"loss": float(loss)},
+                {'loss': float(loss), 'mse_coarse': float(mse_corse), 'mse_fine': float(mse_fine),
+                 'psnr_coarse': float(mse2psnr(mse_corse)), 'psnr_fine': float(mse2psnr(mse_fine))},
                 stat_set="train",
             )
 
@@ -134,6 +151,67 @@ def main(cfg: DictConfig):
             # Adjust the learning rate.
             lr_scheduler.step(optimizer, total_step)
             total_step += 1
+
+            # Validation
+            if epoch % cfg.val.epoch_interval == 0 and epoch > 0:
+                chunk_size = cfg.val.chunk_size
+                for _ in cfg.val.sample_num:
+                    single_image_rays, single_image_pixels = next(iter(val_dataloader))
+                    _, height, width, _ = single_image_pixels.shape
+                    rgb_gt = single_image_pixels[..., :3]
+                    rgb_gt = rgb_gt.float().to(device)
+                    # change Rays to list: [origins, directions, viewdirs, radii, lossmult, near, far]
+                    single_image_rays = [getattr(single_image_rays, key) for key in Rays_keys]
+                    val_mask = single_image_rays[-3]
+                    # flatten each Rays attribute and put on device
+                    single_image_rays = [rays_attr.reshape(-1, rays_attr.shape[-1]).float().to(device) for rays_attr in single_image_rays]
+                    # get the amount of full rays of an image
+                    length = single_image_rays[0].shape[0]
+                    # divide each Rays attr into N groups according to chunk_size,
+                    # the length of the last group <= chunk_size
+                    single_image_rays = [[rays_attr[i:i+chunk_size] for i in range(0, length, chunk_size)] for rays_attr in single_image_rays]
+                    # get N, the N for each Rays attr is the same
+                    length = len(single_image_rays[0])
+                    # generate N Rays instances
+                    single_image_rays = [Rays(*[rays_attr[i] for rays_attr in single_image_rays]) for i in range(length)]
+
+                    # Activate eval mode of the model (lets us do a full rendering pass).
+                    model.eval()
+                    corse_rgb, fine_rgb = [], []
+                    with torch.no_grad():
+                        for batch_rays in single_image_rays:
+                            (c_rgb, _, _), (f_rgb, _, _) = model(batch_rays)
+                            corse_rgb.append(c_rgb)
+                            fine_rgb.append(f_rgb)
+                    corse_rgb = torch.cat(corse_rgb, dim=0)
+                    fine_rgb = torch.cat(fine_rgb, dim=0)
+                    corse_rgb = corse_rgb.reshape(1, height, width, corse_rgb.shape[-1])
+                    fine_rgb = fine_rgb.reshape(1, height, width, fine_rgb.shape[-1])
+                    val_mse_corse = (val_mask * (corse_rgb - rgb_gt) ** 2).sum() / val_mask.sum()
+                    val_mse_fine = (val_mask * (fine_rgb - rgb_gt) ** 2).sum() / val_mask.sum()
+                    val_loss = cfg.loss.coarse_loss_mult * val_mse_corse + val_mse_fine
+                    stats.update(
+                        {'loss': float(val_loss), 'mse_coarse': float(val_mse_corse), 'mse_fine': float(val_mse_fine),
+                         'psnr_coarse': float(mse2psnr(val_mse_corse)), 'psnr_fine': float(mse2psnr(val_mse_fine))},
+                        stat_set='val',
+                    )
+                    stats.print(stat_set="val")
+
+                    if viz is not None:
+                        # Plot that loss curves into visdom.
+                        stats.plot_stats(
+                            viz=viz,
+                            visdom_env=cfg.visualization.visdom_env,
+                            plot_file=None,
+                        )
+                        # Visualize the intermediate results.
+                        val_nerf_out = {'rgb_coarse': corse_rgb, 'rgb_fine': fine_rgb, 'rgb_gt': rgb_gt}
+                        visualize_nerf_outputs(
+                            val_nerf_out, viz, cfg.visualization.visdom_env
+                        )
+
+                    # Set the model back to train mode.
+                    model.train()
 
 
 if __name__ == '__main__':
