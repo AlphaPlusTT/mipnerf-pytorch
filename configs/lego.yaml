@@ -2,14 +2,22 @@ seed: 4
 data:
   path: '/mnt/d/project/mipnerf-pytorch/lego'
   name: 'multicam'
-  white_bkgd: True
-  batch_type: 'all_images'
 train:
   batch_size: 32
+  batch_type: 'all_images'  # single_image: inputs a full image; all_images: inputs batch_size rays sampled from different image
   num_work: 0
   randomized: True
   white_bkgd: True
   stats_print_interval: 10
+val:
+  batch_size: 1
+  batch_type: 'single_image'  # For "single_image", the batch must set to 1
+  num_work: 0
+  randomized: False
+  white_bkgd: True
+  epoch_interval: 1
+  chunk_size: 1024  # The amount of input rays in a forward propagation
+  sample_num: 3  # Total number of images verified during once validation
 nerf:
   num_samples: 128  # The number of samples per level.
   num_levels: 2  # The number of sampling levels.
@@ -46,3 +54,10 @@ optimizer:
   max_steps: 100
 loss:
   disable_multiscale_loss: False
+  coarse_loss_mult: 0.1
+visualization:
+  history_size: 10
+  visdom: False
+  visdom_server: 'localhost'
+  visdom_port: 8097
+  visdom_env: 'nerf_pytorch3d'
