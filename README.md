@@ -41,12 +41,6 @@ conda install pip; pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-[Optional] Install GPU and TPU support for Jax
-```
-# Remember to change cuda101 to your CUDA version, e.g. cuda110 for CUDA 11.0.
-pip install --upgrade jax jaxlib==0.1.65+cuda101 -f https://storage.googleapis.com/jax-releases/jax_releases.html
-```
-
 ## Data
 
 Then, you'll need to download the datasets
