@@ -161,7 +161,8 @@ def main(cfg: DictConfig):
             total_step += 1
 
         # Validation
-        if epoch % cfg.val.epoch_interval == 0 and epoch > 0:
+        # if epoch % cfg.val.epoch_interval == 0 and epoch > 0:
+        if epoch % cfg.val.epoch_interval == 0:
             chunk_size = cfg.val.chunk_size
             for image_id in range(cfg.val.sample_num):
                 single_image_rays, single_image_pixels = next(iter(val_dataloader))
@@ -170,7 +171,7 @@ def main(cfg: DictConfig):
                 rgb_gt = rgb_gt.to(device)
                 # change Rays to list: [origins, directions, viewdirs, radii, lossmult, near, far]
                 single_image_rays = [getattr(single_image_rays, key) for key in Rays_keys]
-                val_mask = single_image_rays[-3]
+                val_mask = single_image_rays[-3].to(device)
                 # flatten each Rays attribute and put on device
                 single_image_rays = [rays_attr.reshape(-1, rays_attr.shape[-1]).to(device) for rays_attr in single_image_rays]
                 # get the amount of full rays of an image
@@ -188,7 +189,7 @@ def main(cfg: DictConfig):
                 corse_rgb, fine_rgb = [], []
                 with torch.no_grad():
                     for batch_rays in single_image_rays:
-                        (c_rgb, _, _), (f_rgb, _, _) = model(batch_rays)
+                        (c_rgb, _, _), (f_rgb, _, _) = model(batch_rays, cfg.val.randomized, cfg.val.white_bkgd)
                         corse_rgb.append(c_rgb)
                         fine_rgb.append(f_rgb)
                 corse_rgb = torch.cat(corse_rgb, dim=0)
@@ -220,7 +221,7 @@ def main(cfg: DictConfig):
                         val_nerf_out, viz, cfg.visualization.visdom_env
                     )
                 for rgb, name in zip([corse_rgb, fine_rgb, rgb_gt], ['coarse', 'fine', 'gt']):
-                    save_path = os.path.join(val_image_folder, '{:d}_{:s}.png'.format(image_id, name))
+                    save_path = os.path.join(val_image_folder, '{:d}_{:d}_{:s}.png'.format(epoch, image_id, name))
                     save_image_tensor(rgb, height, width, save_path, nhwc=True)
 
                 # Set the model back to train mode.

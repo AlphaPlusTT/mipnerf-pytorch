@@ -66,6 +66,7 @@ class MultiCamera(Dataset):
             bkgd = 'black'
         cache_path = os.path.join(self.data_dir, '_'.join(['cache', self.split, bkgd, self.batch_type]))
         if os.path.exists(cache_path):
+            print('loading cached {} data'.format(self.split))
             if self.batch_type == 'single_image':
                 self.images = np.load(os.path.join(cache_path, 'images.npy'), allow_pickle=True).tolist()
                 self.rays = Rays(*[np.load(os.path.join(cache_path, name+'.npy'), allow_pickle=True).tolist()
@@ -77,6 +78,7 @@ class MultiCamera(Dataset):
                 raise NotImplementedError
             return True
         else:
+            print('cached {} data not found, regenerate cache data'.format(self.split))
             return False
 
     def cache_data(self):
@@ -227,6 +229,7 @@ if __name__ == '__main__':
     # images = images
     # print(meta['pix2cam'].dtype)  # float64
     # print(images[0].dtype)  # float64
-    for name in Rays_keys:
-        print(np.load('lego/cache_train_white_all_images/'+name+'.npy').dtype)  # float32
-    print(np.load('lego/cache_train_white_all_images/images.npy').dtype)  # float32
+    # for name in Rays_keys:
+    #     print(np.load('lego/cache_train_white_all_images/'+name+'.npy').dtype)  # float32
+    # print(np.load('lego/cache_train_white_all_images/images.npy').dtype)  # float32
+    print(np.load('lego/cache_train_white_all_images/images.npy').shape)  # float32
