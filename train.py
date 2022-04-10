@@ -10,12 +10,13 @@ from models.mip_nerf import MipNerf
 from utils.stats import Stats
 from utils.lr_schedule import MipLRDecay
 from dataset.dataset import Rays_keys, Rays
-from utils.loss import mse2psnr
+from utils.loss import calc_psnr
 from visdom import Visdom
-from utils.vis import visualize_nerf_outputs
+from utils.vis import visualize_nerf_outputs, save_image_tensor
+import pickle
 import pdb
-import warnings
-warnings.simplefilter('error')
+# import warnings
+# warnings.simplefilter('error')
 
 CONFIG_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "configs")
 
@@ -30,10 +31,10 @@ def main(cfg: DictConfig):
     if torch.cuda.is_available():
         device = "cuda"
     else:
-        # warnings.warn(
-        #     "Please note that although executing on CPU is supported,"
-        #     + "the training is unlikely to finish in reasonable time."
-        # )
+        warnings.warn(
+            "Please note that although executing on CPU is supported,"
+            + "the training is unlikely to finish in reasonable time."
+        )
         device = "cpu"
 
     # if 'batch_type' is 'single_image', make sure the 'batch_size' is 1
@@ -105,6 +106,10 @@ def main(cfg: DictConfig):
     #     ["loss", "mse_coarse", "mse_fine", "psnr_coarse", "psnr_fine", "sec/it"],
     # )
     stats = Stats(['loss', 'mse_coarse', 'mse_fine', 'psnr_coarse', 'psnr_fine'])
+    checkpoint_folder = os.path.join(os.getcwd(), cfg.checkpoint.path)
+    val_image_folder = os.path.join(os.getcwd(), cfg.visualization.val_image_path)
+    for p in [checkpoint_folder, val_image_folder]:
+        os.makedirs(p)
     # for epoch in range(cfg.optimizer.max_epochs):
     while True:  # keep running
         stats.new_epoch()
@@ -116,8 +121,8 @@ def main(cfg: DictConfig):
             # pdb.set_trace()
             # batch_rays = batch_rays.to(device)
             # [getattr(batch_rays, name).to(device) for name in Rays_keys]
-            batch_rays = Rays(*[getattr(batch_rays, name).float().to(device) for name in Rays_keys])
-            batch_pixels = batch_pixels.float().to(device)
+            batch_rays = Rays(*[getattr(batch_rays, name).to(device) for name in Rays_keys])
+            batch_pixels = batch_pixels.to(device)
 
             optimizer.zero_grad()
 
@@ -127,11 +132,14 @@ def main(cfg: DictConfig):
             if cfg.loss.disable_multiscale_loss:
                 mask = torch.ones_like(mask)
             losses = []
+            psnrs = []
             for (rgb, _, _) in ret:
                 losses.append(
                     (mask * (rgb - batch_pixels[..., :3]) ** 2).sum() / mask.sum())
+                psnrs.append(calc_psnr(rgb, batch_pixels[..., :3]))
             # The loss is a sum of coarse and fine MSEs
             mse_corse, mse_fine = losses
+            psnr_corse, psnr_fine = psnrs
             loss = cfg.loss.coarse_loss_mult * mse_corse + mse_fine
 
             # Take the training step.
@@ -141,7 +149,7 @@ def main(cfg: DictConfig):
             # Update stats with the current metrics.
             stats.update(
                 {'loss': float(loss), 'mse_coarse': float(mse_corse), 'mse_fine': float(mse_fine),
-                 'psnr_coarse': float(mse2psnr(mse_corse)), 'psnr_fine': float(mse2psnr(mse_fine))},
+                 'psnr_coarse': float(psnr_corse), 'psnr_fine': float(psnr_fine)},
                 stat_set="train",
             )
 
@@ -152,66 +160,85 @@ def main(cfg: DictConfig):
             lr_scheduler.step(optimizer, total_step)
             total_step += 1
 
-            # Validation
-            if epoch % cfg.val.epoch_interval == 0 and epoch > 0:
-                chunk_size = cfg.val.chunk_size
-                for _ in cfg.val.sample_num:
-                    single_image_rays, single_image_pixels = next(iter(val_dataloader))
-                    _, height, width, _ = single_image_pixels.shape
-                    rgb_gt = single_image_pixels[..., :3]
-                    rgb_gt = rgb_gt.float().to(device)
-                    # change Rays to list: [origins, directions, viewdirs, radii, lossmult, near, far]
-                    single_image_rays = [getattr(single_image_rays, key) for key in Rays_keys]
-                    val_mask = single_image_rays[-3]
-                    # flatten each Rays attribute and put on device
-                    single_image_rays = [rays_attr.reshape(-1, rays_attr.shape[-1]).float().to(device) for rays_attr in single_image_rays]
-                    # get the amount of full rays of an image
-                    length = single_image_rays[0].shape[0]
-                    # divide each Rays attr into N groups according to chunk_size,
-                    # the length of the last group <= chunk_size
-                    single_image_rays = [[rays_attr[i:i+chunk_size] for i in range(0, length, chunk_size)] for rays_attr in single_image_rays]
-                    # get N, the N for each Rays attr is the same
-                    length = len(single_image_rays[0])
-                    # generate N Rays instances
-                    single_image_rays = [Rays(*[rays_attr[i] for rays_attr in single_image_rays]) for i in range(length)]
+        # Validation
+        if epoch % cfg.val.epoch_interval == 0 and epoch > 0:
+            chunk_size = cfg.val.chunk_size
+            for image_id in range(cfg.val.sample_num):
+                single_image_rays, single_image_pixels = next(iter(val_dataloader))
+                _, height, width, _ = single_image_pixels.shape  # N H W C
+                rgb_gt = single_image_pixels[..., :3]
+                rgb_gt = rgb_gt.to(device)
+                # change Rays to list: [origins, directions, viewdirs, radii, lossmult, near, far]
+                single_image_rays = [getattr(single_image_rays, key) for key in Rays_keys]
+                val_mask = single_image_rays[-3]
+                # flatten each Rays attribute and put on device
+                single_image_rays = [rays_attr.reshape(-1, rays_attr.shape[-1]).to(device) for rays_attr in single_image_rays]
+                # get the amount of full rays of an image
+                length = single_image_rays[0].shape[0]
+                # divide each Rays attr into N groups according to chunk_size,
+                # the length of the last group <= chunk_size
+                single_image_rays = [[rays_attr[i:i+chunk_size] for i in range(0, length, chunk_size)] for rays_attr in single_image_rays]
+                # get N, the N for each Rays attr is the same
+                length = len(single_image_rays[0])
+                # generate N Rays instances
+                single_image_rays = [Rays(*[rays_attr[i] for rays_attr in single_image_rays]) for i in range(length)]
 
-                    # Activate eval mode of the model (lets us do a full rendering pass).
-                    model.eval()
-                    corse_rgb, fine_rgb = [], []
-                    with torch.no_grad():
-                        for batch_rays in single_image_rays:
-                            (c_rgb, _, _), (f_rgb, _, _) = model(batch_rays)
-                            corse_rgb.append(c_rgb)
-                            fine_rgb.append(f_rgb)
-                    corse_rgb = torch.cat(corse_rgb, dim=0)
-                    fine_rgb = torch.cat(fine_rgb, dim=0)
-                    corse_rgb = corse_rgb.reshape(1, height, width, corse_rgb.shape[-1])
-                    fine_rgb = fine_rgb.reshape(1, height, width, fine_rgb.shape[-1])
-                    val_mse_corse = (val_mask * (corse_rgb - rgb_gt) ** 2).sum() / val_mask.sum()
-                    val_mse_fine = (val_mask * (fine_rgb - rgb_gt) ** 2).sum() / val_mask.sum()
-                    val_loss = cfg.loss.coarse_loss_mult * val_mse_corse + val_mse_fine
-                    stats.update(
-                        {'loss': float(val_loss), 'mse_coarse': float(val_mse_corse), 'mse_fine': float(val_mse_fine),
-                         'psnr_coarse': float(mse2psnr(val_mse_corse)), 'psnr_fine': float(mse2psnr(val_mse_fine))},
-                        stat_set='val',
+                # Activate eval mode of the model (lets us do a full rendering pass).
+                model.eval()
+                corse_rgb, fine_rgb = [], []
+                with torch.no_grad():
+                    for batch_rays in single_image_rays:
+                        (c_rgb, _, _), (f_rgb, _, _) = model(batch_rays)
+                        corse_rgb.append(c_rgb)
+                        fine_rgb.append(f_rgb)
+                corse_rgb = torch.cat(corse_rgb, dim=0)
+                fine_rgb = torch.cat(fine_rgb, dim=0)
+                corse_rgb = corse_rgb.reshape(1, height, width, corse_rgb.shape[-1])  # N H W C
+                fine_rgb = fine_rgb.reshape(1, height, width, fine_rgb.shape[-1])  # N H W C
+                val_mse_corse = (val_mask * (corse_rgb - rgb_gt) ** 2).sum() / val_mask.sum()
+                val_mse_fine = (val_mask * (fine_rgb - rgb_gt) ** 2).sum() / val_mask.sum()
+                val_loss = cfg.loss.coarse_loss_mult * val_mse_corse + val_mse_fine
+                val_psnr_corse = calc_psnr(corse_rgb, rgb_gt)
+                val_psnr_fine = calc_psnr(fine_rgb, rgb_gt)
+                stats.update(
+                    {'loss': float(val_loss), 'mse_coarse': float(val_mse_corse), 'mse_fine': float(val_mse_fine),
+                     'psnr_coarse': float(val_psnr_corse), 'psnr_fine': float(val_psnr_fine)},
+                    stat_set='val',
+                )
+                stats.print(stat_set="val")
+
+                if viz is not None:
+                    # Plot that loss curves into visdom.
+                    stats.plot_stats(
+                        viz=viz,
+                        visdom_env=cfg.visualization.visdom_env,
+                        plot_file=None,
                     )
-                    stats.print(stat_set="val")
+                    # Visualize the intermediate results.
+                    val_nerf_out = {'rgb_coarse': corse_rgb, 'rgb_fine': fine_rgb, 'rgb_gt': rgb_gt}
+                    visualize_nerf_outputs(
+                        val_nerf_out, viz, cfg.visualization.visdom_env
+                    )
+                for rgb, name in zip([corse_rgb, fine_rgb, rgb_gt], ['coarse', 'fine', 'gt']):
+                    save_path = os.path.join(val_image_folder, '{:d}_{:s}.png'.format(image_id, name))
+                    save_image_tensor(rgb, height, width, save_path, nhwc=True)
 
-                    if viz is not None:
-                        # Plot that loss curves into visdom.
-                        stats.plot_stats(
-                            viz=viz,
-                            visdom_env=cfg.visualization.visdom_env,
-                            plot_file=None,
-                        )
-                        # Visualize the intermediate results.
-                        val_nerf_out = {'rgb_coarse': corse_rgb, 'rgb_fine': fine_rgb, 'rgb_gt': rgb_gt}
-                        visualize_nerf_outputs(
-                            val_nerf_out, viz, cfg.visualization.visdom_env
-                        )
+                # Set the model back to train mode.
+                model.train()
 
-                    # Set the model back to train mode.
-                    model.train()
+        # Checkpoint.
+        if (
+                epoch % cfg.checkpoint.epoch_interval == 0
+                and len(cfg.checkpoint.path) > 0
+                and epoch > 0
+        ):
+            print(f"Storing checkpoint {cfg.checkpoint.name} to {checkpoint_folder}.")
+            data_to_store = {
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "stats": pickle.dumps(stats),
+            }
+            torch.save(data_to_store, os.path.join(checkpoint_folder, cfg.checkpoint.name))
 
 
 if __name__ == '__main__':

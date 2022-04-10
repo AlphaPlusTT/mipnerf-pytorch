@@ -3,3 +3,4 @@ outputs/
 temp/
 __pycache__/
 lego/
+*.png

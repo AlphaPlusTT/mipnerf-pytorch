@@ -66,8 +66,15 @@ class MultiCamera(Dataset):
             bkgd = 'black'
         cache_path = os.path.join(self.data_dir, '_'.join(['cache', self.split, bkgd, self.batch_type]))
         if os.path.exists(cache_path):
-            self.images = np.load(os.path.join(cache_path, 'images.npy'))
-            self.rays = Rays(*[np.load(os.path.join(cache_path, name+'.npy')) for name in Rays_keys])
+            if self.batch_type == 'single_image':
+                self.images = np.load(os.path.join(cache_path, 'images.npy'), allow_pickle=True).tolist()
+                self.rays = Rays(*[np.load(os.path.join(cache_path, name+'.npy'), allow_pickle=True).tolist()
+                                   for name in Rays_keys])
+            elif self.batch_type == 'all_images':
+                self.images = np.load(os.path.join(cache_path, 'images.npy'))
+                self.rays = Rays(*[np.load(os.path.join(cache_path, name+'.npy')) for name in Rays_keys])
+            else:
+                raise NotImplementedError
             return True
         else:
             return False
@@ -80,8 +87,14 @@ class MultiCamera(Dataset):
         cache_path = os.path.join(self.data_dir, '_'.join(['cache', self.split, bkgd, self.batch_type]))
         assert not os.path.exists(cache_path)
         os.mkdir(cache_path)
-        np.save(os.path.join(cache_path, 'images'), self.images)
-        [np.save(os.path.join(cache_path, name), getattr(self.rays, name)) for name in Rays_keys]
+        if self.batch_type == 'single_image':
+            np.save(os.path.join(cache_path, 'images'), np.array(self.images, dtype=object))
+            [np.save(os.path.join(cache_path, name), np.array(getattr(self.rays, name), dtype=object)) for name in Rays_keys]
+        elif self.batch_type == 'all_images':
+            np.save(os.path.join(cache_path, 'images'), self.images)
+            [np.save(os.path.join(cache_path, name), getattr(self.rays, name)) for name in Rays_keys]
+        else:
+            raise NotImplementedError
 
     def _load_renderings(self):
         """Load images from disk."""
@@ -97,7 +110,7 @@ class MultiCamera(Dataset):
             if self.white_bkgd:
                 # image = image[..., :3] * image[..., -1:] + (1. - image[..., -1:])
                 # pixels with alpha between 0 and 1 has a weird color!
-                mask = np.where(image[..., -1] > 1e-6, 1., 0.)[..., None]
+                mask = np.where(image[..., -1] > 1e-6, 1., 0.)[..., None].astype(np.float32)
                 image = image[..., :3] * mask + (1. - mask)
             images.append(image[..., :3])
         self.images = images
@@ -105,10 +118,10 @@ class MultiCamera(Dataset):
 
     def _generate_rays(self):
         """Generating rays for all images."""
-        pix2cam = self.meta['pix2cam']
-        cam2world = self.meta['cam2world']
-        width = self.meta['width']
-        height = self.meta['height']
+        pix2cam = self.meta['pix2cam'].astype(np.float32)
+        cam2world = self.meta['cam2world'].astype(np.float32)
+        width = self.meta['width'].astype(np.float32)
+        height = self.meta['height'].astype(np.float32)
 
         def res2grid(w, h):
             return np.meshgrid(  # pylint: disable=unbalanced-tuple-unpacking
@@ -130,7 +143,7 @@ class MultiCamera(Dataset):
 
         def broadcast_scalar_attribute(x):
             return [
-                np.broadcast_to(x[i], origins[i][..., :1].shape)
+                np.broadcast_to(x[i], origins[i][..., :1].shape).astype(np.float32)
                 for i in range(len(self.images))
             ]
 
@@ -196,21 +209,24 @@ dataset_dict = {
 
 
 if __name__ == '__main__':
-    with open(os.path.join('../lego', 'metadata.json'), 'r') as fp:
-        meta = json.load(fp)['train']
-    meta = {k: np.array(meta[k]) for k in meta}
-    # should now have ['pix2cam', 'cam2world', 'width', 'height'] in self.meta
-    images = []
-    for relative_path in meta['file_path'][:10]:
-        image_path = os.path.join('../lego', relative_path)
-        with open(image_path, 'rb') as image_file:
-            image = np.array(Image.open(image_file), dtype=np.float32) / 255.
-        if True:
-            # image = image[..., :3] * image[..., -1:] + (1. - image[..., -1:])
-            # pixels with alpha between 0 and 1 has a weird color!
-            mask = np.where(image[..., -1] > 1e-6, 1., 0.)[..., None]
-            image = image[..., :3] * mask + (1. - mask)
-        images.append(image[..., :3])
-    images = images
-    print(meta['pix2cam'].dtype)  # float64
-    print(images[0].dtype)  # float64
+    # with open(os.path.join('../lego', 'metadata.json'), 'r') as fp:
+    #     meta = json.load(fp)['train']
+    # meta = {k: np.array(meta[k]) for k in meta}
+    # # should now have ['pix2cam', 'cam2world', 'width', 'height'] in self.meta
+    # images = []
+    # for relative_path in meta['file_path'][:10]:
+    #     image_path = os.path.join('../lego', relative_path)
+    #     with open(image_path, 'rb') as image_file:
+    #         image = np.array(Image.open(image_file), dtype=np.float32) / 255.
+    #     if True:
+    #         # image = image[..., :3] * image[..., -1:] + (1. - image[..., -1:])
+    #         # pixels with alpha between 0 and 1 has a weird color!
+    #         mask = np.where(image[..., -1] > 1e-6, 1., 0.)[..., None]
+    #         image = image[..., :3] * mask + (1. - mask)
+    #     images.append(image[..., :3])
+    # images = images
+    # print(meta['pix2cam'].dtype)  # float64
+    # print(images[0].dtype)  # float64
+    for name in Rays_keys:
+        print(np.load('lego/cache_train_white_all_images/'+name+'.npy').dtype)  # float32
+    print(np.load('lego/cache_train_white_all_images/images.npy').dtype)  # float32
