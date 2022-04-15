@@ -37,7 +37,7 @@ def conical_frustum_to_gaussian(directions, t0, t1, base_radius, diagonal, stabl
     Assumes the ray is originating from the origin, and base_radius is the
     radius at dist=1. Doesn't assume `directions` is normalized.
     Args:
-        directions: jnp.float32 3-vector, the axis of the cone
+        directions: torch.float32 3-vector, the axis of the cone
         t0: float, the starting distance of the frustum.
         t1: float, the ending distance of the frustum.
         base_radius: float, the scale of the radius as a function of distance.
@@ -200,7 +200,7 @@ def resample_along_rays(origins, directions, radii, t_samples, weights, randomiz
         directions: torch.Tensor(float32), [batch_size, 3], ray directions.
         radii: torch.Tensor(float32), [batch_size, 3], ray radii.
         t_samples: torch.Tensor(float32), [batch_size, num_samples+1].
-        weights: jnp.array(float32), weights for t_samples
+        weights: torch.array(float32), weights for t_samples
         randomized: bool, use randomized samples.
         ray_shape: string, which kind of shape to assume for the ray.
         stop_grad: bool, whether or not to backprop through sampling.
