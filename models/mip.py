@@ -92,19 +92,19 @@ def sample_along_rays(origins, directions, radii, num_samples, near, far, random
     """
     Stratified sampling along the rays.
     Args:
-        origins: jnp.ndarray(float32), [batch_size, 3], ray origins.
-        directions: jnp.ndarray(float32), [batch_size, 3], ray directions.
-        radii: jnp.ndarray(float32), [batch_size, 3], ray radii.
+        origins: torch.Tensor(float32), [batch_size, 3], ray origins.
+        directions: torch.Tensor(float32), [batch_size, 3], ray directions.
+        radii: torch.Tensor(float32), [batch_size, 3], ray radii.
         num_samples: int.
-        near: jnp.ndarray, [batch_size, 1], near clip.
-        far: jnp.ndarray, [batch_size, 1], far clip.
+        near: torch.Tensor, [batch_size, 1], near clip.
+        far: torch.Tensor, [batch_size, 1], far clip.
         randomized: bool, use randomized stratified sampling.
         disparity: bool, sampling linearly in disparity rather than depth.
         ray_shape: string, which shape ray to assume.
     Returns:
-    t_samples: jnp.ndarray, [batch_size, num_samples], sampled z values.
-    means: jnp.ndarray, [batch_size, num_samples, 3], sampled means.
-    covs: jnp.ndarray, [batch_size, num_samples, 3, 3], sampled covariances.
+    t_samples: torch.Tensor, [batch_size, num_samples], sampled z values.
+    means: torch.Tensor, [batch_size, num_samples, 3], sampled means.
+    covs: torch.Tensor, [batch_size, num_samples, 3, 3], sampled covariances.
     """
     batch_size = origins.shape[0]
 
@@ -132,12 +132,12 @@ def sorted_piecewise_constant_pdf(bins, weights, num_samples, randomized):
     """
     Piecewise-Constant PDF sampling from sorted bins.
     Args:
-        bins: jnp.ndarray(float32), [batch_size, num_bins + 1].
-        weights: jnp.ndarray(float32), [batch_size, num_bins].
+        bins: torch.Tensor(float32), [batch_size, num_bins + 1].
+        weights: torch.Tensor(float32), [batch_size, num_bins].
         num_samples: int, the number of samples.
         randomized: bool, use randomized samples.
     Returns:
-        t_samples: jnp.ndarray(float32), [batch_size, num_samples].
+        t_samples: torch.Tensor(float32), [batch_size, num_samples].
     """
     # Pad each weight vector (only if necessary) to bring its sum to `eps`. This
     # avoids NaNs when the input is zeros or small, but has no effect otherwise.
@@ -196,18 +196,18 @@ def resample_along_rays(origins, directions, radii, t_samples, weights, randomiz
                         resample_padding):
     """Resampling.
     Args:
-        origins: jnp.ndarray(float32), [batch_size, 3], ray origins.
-        directions: jnp.ndarray(float32), [batch_size, 3], ray directions.
-        radii: jnp.ndarray(float32), [batch_size, 3], ray radii.
-        t_samples: jnp.ndarray(float32), [batch_size, num_samples+1].
+        origins: torch.Tensor(float32), [batch_size, 3], ray origins.
+        directions: torch.Tensor(float32), [batch_size, 3], ray directions.
+        radii: torch.Tensor(float32), [batch_size, 3], ray radii.
+        t_samples: torch.Tensor(float32), [batch_size, num_samples+1].
         weights: jnp.array(float32), weights for t_samples
         randomized: bool, use randomized samples.
         ray_shape: string, which kind of shape to assume for the ray.
         stop_grad: bool, whether or not to backprop through sampling.
         resample_padding: float, added to the weights before normalizing.
     Returns:
-        t_samples: jnp.ndarray(float32), [batch_size, num_samples+1].
-        points: jnp.ndarray(float32), [batch_size, num_samples, 3].
+        t_samples: torch.Tensor(float32), [batch_size, num_samples+1].
+        points: torch.Tensor(float32), [batch_size, num_samples, 3].
     """
     # Do a blurpool.
     if stop_grad:
@@ -257,13 +257,13 @@ def expected_sin(x, x_var):
 def integrated_pos_enc(means_covs, min_deg, max_deg, diagonal=True):
     """Encode `means` with sinusoids scaled by 2^[min_deg:max_deg-1].
     Args:
-        means_covs: a tuple containing: means, jnp.ndarray, variables to be encoded. Should
-            be in [-pi, pi]. covs, jnp.ndarray, covariance matrices.
+        means_covs: a tuple containing: means, torch.Tensor, variables to be encoded. Should
+            be in [-pi, pi]. covs, torch.Tensor, covariance matrices.
         min_deg: int, the min degree of the encoding.
         max_deg: int, the max degree of the encoding.
         diagonal: bool, if true, expects input covariances to be diagonal (full otherwise).
     Returns:
-        encoded: jnp.ndarray, encoded variables.
+        encoded: torch.Tensor, encoded variables.
     """
     if diagonal:
         means, covs_diag = means_covs
@@ -303,16 +303,16 @@ def pos_enc(x, min_deg, max_deg, append_identity=True):
 def volumetric_rendering(rgb, density, t_samples, dirs, white_bkgd):
     """Volumetric Rendering Function.
     Args:
-        rgb: jnp.ndarray(float32), color, [batch_size, num_samples, 3]
-        density: jnp.ndarray(float32), density, [batch_size, num_samples, 1].
-        t_samples: jnp.ndarray(float32), [batch_size, num_samples].
-        dirs: jnp.ndarray(float32), [batch_size, 3].
+        rgb: torch.Tensor(float32), color, [batch_size, num_samples, 3]
+        density: torch.Tensor(float32), density, [batch_size, num_samples, 1].
+        t_samples: torch.Tensor(float32), [batch_size, num_samples].
+        dirs: torch.Tensor(float32), [batch_size, 3].
         white_bkgd: bool.
     Returns:
-        comp_rgb: jnp.ndarray(float32), [batch_size, 3].
-        disp: jnp.ndarray(float32), [batch_size].
-        acc: jnp.ndarray(float32), [batch_size].
-        weights: jnp.ndarray(float32), [batch_size, num_samples]
+        comp_rgb: torch.Tensor(float32), [batch_size, 3].
+        disp: torch.Tensor(float32), [batch_size].
+        acc: torch.Tensor(float32), [batch_size].
+        weights: torch.Tensor(float32), [batch_size, num_samples]
     """
     # TODO: different from nerf ? nerf use cumprod to get weights.
     t_mids = 0.5 * (t_samples[..., :-1] + t_samples[..., 1:])

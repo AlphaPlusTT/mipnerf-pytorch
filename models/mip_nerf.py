@@ -74,9 +74,9 @@ class MLP(torch.nn.Module):
             original paper, this variable is the view direction.
 
         Returns:
-            raw_rgb: jnp.ndarray(float32), with a shape of
+            raw_rgb: torch.Tensor(float32), with a shape of
                 [batch, num_samples, num_rgb_channels].
-            raw_density: jnp.ndarray(float32), with a shape of
+            raw_density: torch.Tensor(float32), with a shape of
                 [batch, num_samples, num_density_channels].
         """
         num_samples = x.shape[1]
