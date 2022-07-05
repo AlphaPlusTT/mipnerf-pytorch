@@ -159,6 +159,8 @@ def main(cfg: DictConfig):
             # Adjust the learning rate.
             lr_scheduler.step(optimizer, total_step)
             total_step += 1
+            if total_step == cfg.optimizer.max_steps:
+                break
 
         # Validation
         # if epoch % cfg.val.epoch_interval == 0 and epoch > 0:
@@ -240,6 +242,20 @@ def main(cfg: DictConfig):
                 "stats": pickle.dumps(stats),
             }
             torch.save(data_to_store, os.path.join(checkpoint_folder, cfg.checkpoint.name))
+    # Checkpoint.
+    if (
+            epoch % cfg.checkpoint.epoch_interval == 0
+            and len(cfg.checkpoint.path) > 0
+            and epoch > 0
+    ):
+        print('training phase over:')
+        print(f"Storing final checkpoint {cfg.checkpoint.name} to {checkpoint_folder}.")
+        data_to_store = {
+            "model": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "stats": pickle.dumps(stats),
+        }
+        torch.save(data_to_store, os.path.join(checkpoint_folder, cfg.checkpoint.name))
 
 
 if __name__ == '__main__':

@@ -4,3 +4,4 @@ temp/
 __pycache__/
 lego/
 *.png
+temp.py

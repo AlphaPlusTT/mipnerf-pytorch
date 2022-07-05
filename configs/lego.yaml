@@ -1,14 +1,14 @@
 seed: 4
 data:
-  path: '/mnt/d/project/mipnerf-pytorch/lego'
+  path: '/home/ccf/data/nerf/multiscale/lego-temp'
   name: 'multicam'
 train:
-  batch_size: 32
+  batch_size: 3072
   batch_type: 'all_images'  # single_image: inputs a full image; all_images: inputs batch_size rays sampled from different image
   num_work: 0
   randomized: True
   white_bkgd: True
-  stats_print_interval: 10
+  stats_print_interval: 100
 val:
   batch_size: 1
   batch_type: 'single_image'  # For "single_image", the batch must set to 1
@@ -51,7 +51,7 @@ optimizer:
   lr_final: 5e-6  # The final learning rate.
   lr_delay_steps: 2500  # The number of "warmup" learning steps.
   lr_delay_mult: 0.01  # How much sever the "warmup" should be.
-  max_steps: 100
+  max_steps: 1000000
 loss:
   disable_multiscale_loss: False
   coarse_loss_mult: 0.1

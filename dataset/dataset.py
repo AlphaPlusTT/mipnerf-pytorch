@@ -110,10 +110,10 @@ class MultiCamera(Dataset):
             with open(image_path, 'rb') as image_file:
                 image = np.array(Image.open(image_file), dtype=np.float32) / 255.
             if self.white_bkgd:
-                # image = image[..., :3] * image[..., -1:] + (1. - image[..., -1:])
+                image = image[..., :3] * image[..., -1:] + (1. - image[..., -1:])
                 # pixels with alpha between 0 and 1 has a weird color!
-                mask = np.where(image[..., -1] > 1e-6, 1., 0.)[..., None].astype(np.float32)
-                image = image[..., :3] * mask + (1. - mask)
+                # mask = np.where(image[..., -1] > 1e-6, 1., 0.)[..., None].astype(np.float32)
+                # image = image[..., :3] * mask + (1. - mask)
             images.append(image[..., :3])
         self.images = images
         # self.n_examples = len(self.images)
