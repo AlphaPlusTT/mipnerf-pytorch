@@ -14,11 +14,13 @@ from utils.loss import calc_psnr
 from visdom import Visdom
 from utils.vis import visualize_nerf_outputs, save_image_tensor
 import pickle
+import logging
 import pdb
 # import warnings
 # warnings.simplefilter('error')
 
 CONFIG_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "configs")
+log = logging.getLogger(__name__)
 
 
 @hydra.main(config_path=CONFIG_DIR, config_name="lego")
@@ -105,7 +107,7 @@ def main(cfg: DictConfig):
     # stats = Stats(
     #     ["loss", "mse_coarse", "mse_fine", "psnr_coarse", "psnr_fine", "sec/it"],
     # )
-    stats = Stats(['loss', 'mse_coarse', 'mse_fine', 'psnr_coarse', 'psnr_fine'])
+    stats = Stats(['loss', 'mse_coarse', 'mse_fine', 'psnr_coarse', 'psnr_fine'], fresh=False)
     checkpoint_folder = os.path.join(os.getcwd(), cfg.checkpoint.path)
     val_image_folder = os.path.join(os.getcwd(), cfg.visualization.val_image_path)
     for p in [checkpoint_folder, val_image_folder]:
@@ -117,6 +119,11 @@ def main(cfg: DictConfig):
         if total_step == cfg.optimizer.max_steps:
             break
         for iteration, batch in enumerate(train_dataloader):
+            # Adjust the learning rate before optimizer.step(), for warm up
+            lr_scheduler.step(optimizer, total_step)
+            if iteration == 40:
+                break
+
             batch_rays, batch_pixels = batch
             # pdb.set_trace()
             # batch_rays = batch_rays.to(device)
@@ -154,10 +161,8 @@ def main(cfg: DictConfig):
             )
 
             if iteration % cfg.train.stats_print_interval == 0:
-                stats.print(stat_set="train")
+                log.info(stats.print(stat_set="train") + ' lr {:.6f}'.format(float(optimizer.param_groups[0]['lr'])))
 
-            # Adjust the learning rate.
-            lr_scheduler.step(optimizer, total_step)
             total_step += 1
             if total_step == cfg.optimizer.max_steps:
                 break
@@ -208,7 +213,7 @@ def main(cfg: DictConfig):
                      'psnr_coarse': float(val_psnr_corse), 'psnr_fine': float(val_psnr_fine)},
                     stat_set='val',
                 )
-                stats.print(stat_set="val")
+                log.info(stats.print(stat_set="val"))
 
                 if viz is not None:
                     # Plot that loss curves into visdom.

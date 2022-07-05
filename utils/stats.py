@@ -110,6 +110,7 @@ class Stats:
         verbose: bool = False,
         epoch: int = -1,
         plot_file: Optional[str] = None,
+        fresh: bool = True,
     ) -> None:
         """
         Args:
@@ -117,10 +118,12 @@ class Stats:
             verbose: Print status messages.
             epoch: The initial epoch of the object.
             plot_file: The path to the file that will hold the training plots.
+            fresh: The iter num will set to -1 for each epoch if True.
         """
         self.verbose = verbose
         self.log_vars = log_vars
         self.plot_file = plot_file
+        self.fresh = fresh
         self.hard_reset(epoch=epoch)
 
     def reset(self) -> None:
@@ -130,7 +133,8 @@ class Stats:
         stat_sets = list(self.stats.keys())
         if self.verbose:
             print("stats: epoch %d - reset" % self.epoch)
-        self.it = {k: -1 for k in stat_sets}
+        if self.epoch == -1 or self.fresh:
+            self.it = {k: -1 for k in stat_sets}
         for stat_set in stat_sets:
             for stat in self.stats[stat_set]:
                 self.stats[stat_set][stat].reset()
@@ -211,7 +215,7 @@ class Stats:
             if val is not None:
                 self.stats[stat_set][stat].update(val, epoch=epoch, n=1)
 
-    def print(self, max_it: Optional[int] = None, stat_set: str = "train") -> None:
+    def print(self, max_it: Optional[int] = None, stat_set: str = "train") -> str:
         """
         Print the current values of all stored stats.
 
@@ -240,7 +244,8 @@ class Stats:
 
         str_out = f"{head_str} | {stat_str}"
 
-        print(str_out)
+        # print(str_out)
+        return str_out
 
     def plot_stats(
         self,

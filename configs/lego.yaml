@@ -1,6 +1,6 @@
 seed: 4
 data:
-  path: '/home/ccf/data/nerf/multiscale/lego-temp'
+  path: '/home/ccf/data/nerf/multiscale/lego'
   name: 'multicam'
 train:
   batch_size: 3072
@@ -8,7 +8,7 @@ train:
   num_work: 0
   randomized: True
   white_bkgd: True
-  stats_print_interval: 100
+  stats_print_interval: 10
 val:
   batch_size: 1
   batch_type: 'single_image'  # For "single_image", the batch must set to 1
@@ -16,7 +16,7 @@ val:
   randomized: False
   white_bkgd: True
   epoch_interval: 1
-  chunk_size: 1024  # The amount of input rays in a forward propagation
+  chunk_size: 2048  # The amount of input rays in a forward propagation
   sample_num: 4  # Total number of images verified during once validation
 nerf:
   num_samples: 128  # The number of samples per level.
@@ -69,3 +69,5 @@ checkpoint:
 hydra:
   run:
     dir: './outputs/lego/${now:%Y-%m-%d_%H-%M-%S}'
+defaults:
+  - override hydra/job_logging: custom
