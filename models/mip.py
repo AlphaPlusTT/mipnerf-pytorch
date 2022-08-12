@@ -7,12 +7,10 @@ def lift_gaussian(directions, t_mean, t_var, r_var, diagonal):
     """Lift a Gaussian defined along a ray to 3D coordinates."""
     mean = directions[..., None, :] * t_mean[..., None]
     # d_mag_sq = jnp.maximum(1e-10, torch.sum(directions ** 2, dim=-1, keepdim=True))
-    d_norm_denominator = torch.sum(directions ** 2, dim=-1, keepdim=True)
+    d_norm_denominator = torch.sum(directions ** 2, dim=-1, keepdim=True) + 1e-10
     # TODO: is *_like able to copy the device?
-    # min_denominator = torch.full_like(d_norm_denominator, 1e-10, dtype=d_norm_denominator.dtype,
-    #                                   device=d_norm_denominator.device)
-    min_denominator = torch.full_like(d_norm_denominator, 1e-10)
-    d_norm_denominator = torch.maximum(min_denominator, d_norm_denominator)
+    # min_denominator = torch.full_like(d_norm_denominator, 1e-10)
+    # d_norm_denominator = torch.maximum(min_denominator, d_norm_denominator)
     if diagonal:
         d_outer_diag = directions ** 2
         null_outer_diag = 1 - d_outer_diag / d_norm_denominator
@@ -161,10 +159,6 @@ def sorted_piecewise_constant_pdf(bins, weights, num_samples, randomized):
     if randomized:
         s = 1 / num_samples
         u = (torch.arange(num_samples, device=cdf.device) * s)[None, ...]
-        # u += jax.random.uniform(
-        #     key,
-        #     list(cdf.shape[:-1]) + [num_samples],
-        #     maxval=s - jnp.finfo('float32').eps)
         u = u + torch.empty(list(cdf.shape[:-1]) + [num_samples], device=cdf.device).uniform_(to=(s-torch.finfo(torch.float32).eps))
         # `u` is in [0, 1) --- it can be zero, but it can never be 1.
         u = torch.minimum(u, torch.full_like(u, 1. - torch.finfo(torch.float32).eps, device=u.device))
@@ -172,7 +166,8 @@ def sorted_piecewise_constant_pdf(bins, weights, num_samples, randomized):
         # Match the behavior of jax.random.uniform() by spanning [0, 1-eps].
         u = torch.linspace(0., 1. - torch.finfo(torch.float32).eps, num_samples, device=cdf.device)
         u = torch.broadcast_to(u, list(cdf.shape[:-1]) + [num_samples])
-
+    '''
+    mipnerf 
     # Identify the location in `cdf` that corresponds to a random sample.
     # The final `True` index in `mask` will be the start of the sampled interval.
     mask = u[..., None, :] >= cdf[..., :, None]
@@ -189,6 +184,32 @@ def sorted_piecewise_constant_pdf(bins, weights, num_samples, randomized):
 
     t = torch.clamp(torch.nan_to_num((u - cdf_g0) / (cdf_g1 - cdf_g0), 0), 0, 1)
     samples = bins_g0 + t * (bins_g1 - bins_g0)
+    '''
+
+    # Invert CDF
+    inds = torch.searchsorted(cdf, u, right=True)
+    # inds has shape (..., N_samples) identifying the bin of each sample.
+    below = (inds - 1).clamp(0)
+    above = inds.clamp(max=cdf.shape[-1] - 1)
+    # Below and above are of shape (..., N_samples), identifying the bin
+    # edges surrounding each sample.
+
+    inds_g = torch.stack([below, above], -1).view(
+        *below.shape[:-1], below.shape[-1] * 2
+    )
+    cdf_g = torch.gather(cdf, -1, inds_g).view(*below.shape, 2)
+    bins_g = torch.gather(bins, -1, inds_g).view(*below.shape, 2)
+    # cdf_g and bins_g are of shape (..., N_samples, 2) and identify
+    # the cdf and the index of the two bin edges surrounding each sample.
+
+    denom = cdf_g[..., 1] - cdf_g[..., 0]
+    denom = torch.where(denom < eps, torch.ones_like(denom), denom)
+    t = (u - cdf_g[..., 0]) / denom
+    # t is of shape  (..., N_samples) and identifies how far through
+    # each sample is in its bin.
+
+    samples = bins_g[..., 0] + t * (bins_g[..., 1] - bins_g[..., 0])
+
     return samples
 
 

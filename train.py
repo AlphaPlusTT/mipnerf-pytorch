@@ -121,8 +121,6 @@ def main(cfg: DictConfig):
         for iteration, batch in enumerate(train_dataloader):
             # Adjust the learning rate before optimizer.step(), for warm up
             lr_scheduler.step(optimizer, total_step)
-            if iteration == 40:
-                break
 
             batch_rays, batch_pixels = batch
             # pdb.set_trace()

@@ -8,7 +8,7 @@ train:
   num_work: 0
   randomized: True
   white_bkgd: True
-  stats_print_interval: 10
+  stats_print_interval: 200
 val:
   batch_size: 1
   batch_type: 'single_image'  # For "single_image", the batch must set to 1
