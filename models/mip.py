@@ -166,8 +166,8 @@ def sorted_piecewise_constant_pdf(bins, weights, num_samples, randomized):
         # Match the behavior of jax.random.uniform() by spanning [0, 1-eps].
         u = torch.linspace(0., 1. - torch.finfo(torch.float32).eps, num_samples, device=cdf.device)
         u = torch.broadcast_to(u, list(cdf.shape[:-1]) + [num_samples])
-    '''
-    mipnerf 
+
+    # mipnerf
     # Identify the location in `cdf` that corresponds to a random sample.
     # The final `True` index in `mask` will be the start of the sampled interval.
     mask = u[..., None, :] >= cdf[..., :, None]
@@ -184,8 +184,9 @@ def sorted_piecewise_constant_pdf(bins, weights, num_samples, randomized):
 
     t = torch.clamp(torch.nan_to_num((u - cdf_g0) / (cdf_g1 - cdf_g0), 0), 0, 1)
     samples = bins_g0 + t * (bins_g1 - bins_g0)
-    '''
 
+    '''
+    # nerf
     # Invert CDF
     inds = torch.searchsorted(cdf, u, right=True)
     # inds has shape (..., N_samples) identifying the bin of each sample.
@@ -209,7 +210,7 @@ def sorted_piecewise_constant_pdf(bins, weights, num_samples, randomized):
     # each sample is in its bin.
 
     samples = bins_g[..., 0] + t * (bins_g[..., 1] - bins_g[..., 0])
-
+    '''
     return samples
 
 
@@ -344,7 +345,7 @@ def volumetric_rendering(rgb, density, t_samples, dirs, white_bkgd):
     density_delta = density[..., 0] * delta
 
     alpha = 1 - torch.exp(-density_delta)
-    trans = torch.exp(torch.cat([
+    trans = torch.exp(-torch.cat([
         torch.zeros_like(density_delta[..., :1]),
         torch.cumsum(density_delta[..., :-1], dim=-1)
     ],

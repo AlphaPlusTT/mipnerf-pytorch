@@ -244,7 +244,7 @@ def main(cfg: DictConfig):
                 "optimizer": optimizer.state_dict(),
                 "stats": pickle.dumps(stats),
             }
-            torch.save(data_to_store, os.path.join(checkpoint_folder, cfg.checkpoint.name))
+            torch.save(data_to_store, os.path.join(checkpoint_folder, cfg.checkpoint.name + '_ep{}.pth'.format(epoch)))
     # Checkpoint.
     if (
             epoch % cfg.checkpoint.epoch_interval == 0
@@ -258,7 +258,7 @@ def main(cfg: DictConfig):
             "optimizer": optimizer.state_dict(),
             "stats": pickle.dumps(stats),
         }
-        torch.save(data_to_store, os.path.join(checkpoint_folder, cfg.checkpoint.name))
+        torch.save(data_to_store, os.path.join(checkpoint_folder, cfg.checkpoint.name + '_last.pth'))
 
 
 if __name__ == '__main__':

@@ -1,6 +1,6 @@
 seed: 4
 data:
-  path: '/home/ccf/data/nerf/multiscale/lego'
+  path: '/home/zed/data/nerf/multiscale/lego'
   name: 'multicam'
 train:
   batch_size: 3072
@@ -16,7 +16,7 @@ val:
   randomized: False
   white_bkgd: True
   epoch_interval: 1
-  chunk_size: 2048  # The amount of input rays in a forward propagation
+  chunk_size: 4096  # The amount of input rays in a forward propagation
   sample_num: 4  # Total number of images verified during once validation
 nerf:
   num_samples: 128  # The number of samples per level.
@@ -62,9 +62,10 @@ visualization:
   visdom_port: 8097
   visdom_env: 'nerf_pytorch3d'
   val_image_path: 'val_image'
+  test_image_path: 'test_image'
 checkpoint:
   path: 'checkpoints'
-  name: 'lego.pth'
+  name: 'lego'
   epoch_interval: 1
 hydra:
   run:
