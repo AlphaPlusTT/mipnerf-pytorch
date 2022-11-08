@@ -38,7 +38,8 @@ conda create --name mipnerf python=3.8.11; conda activate mipnerf
 # Prepare pip
 conda install pip; pip install --upgrade pip
 # Install requirements
-pip install -r requirements.txt
+We used torch==1.9.1, torchvision==0.10.1, CUDA==10.2, hydra-core==1.1.1, visdom==0.1.8.9, matplotlib==3.5.1, einops==0.4.1 
+
 ```
 
 ## Data
